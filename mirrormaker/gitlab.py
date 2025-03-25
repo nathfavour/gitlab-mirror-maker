@@ -142,7 +142,7 @@ def mirror_target_exists(github_repos: List[Dict[str, Any]], mirrors: List[Dict[
     """
 
     for mirror in mirrors:
-        if any(mirror['url'] and mirror['url'].endswith(f'{repo["full_name"]}.git') for repo in github_repos):
+        if any(mirror.get('url') and mirror.get('url').endswith(f'{repo["full_name"]}.git') for repo in github_repos):
             return True
 
     return False
@@ -171,7 +171,7 @@ def create_mirror(gitlab_repo: Dict[str, Any], github_token: str, github_user: O
 
     # If github-user is not provided use the gitlab username
     if not github_user:
-        github_user = gitlab_repo['owner']['username']
+        github_user = gitlab_repo.get('owner', {}).get('username', '')
 
     data = {
         'url': f'https://{github_user}:{github_token}@github.com/{github_user}/{gitlab_repo["path"]}.git',

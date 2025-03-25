@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gitlab-mirror-maker"
-version = "0.4.2"
+version = "0.5.0"
 description = "Automatically mirror your repositories from GitLab to GitHub"
 authors = ["Grzegorz Dlugoszewski <pypi@grdl.dev>"]
 maintainers = ["Grzegorz Dlugoszewski <pypi@grdl.dev>"]
@@ -23,6 +23,7 @@ requests = "^2.23.0"
 click = "^7.1.1"
 tabulate = "^0.8.7"
 typing-extensions = "^4.0.0"
+pathlib = "^1.0.1"
 
 [tool.poetry.dev-dependencies]
 pylint = "^2.4.4"

@@ -41,6 +41,50 @@ export MIRRORMAKER_GITLAB_TOKEN xxx
 gitlab-mirror-maker
 ```
 
+### Configuration File
+
+GitLab Mirror Maker can load configuration from a JSON file at `~/.gitlab_mirror_maker`. 
+This allows you to store your settings without having to provide them each time.
+
+To create a configuration file with your current settings, use:
+```
+gitlab-mirror-maker --github-token xxx --gitlab-token xxx --save-config
+```
+
+Example configuration file:
+```json
+{
+  "use_glab_cli": true,
+  "glab_path": "glab",
+  "glab_mirror_options": {
+    "allow_divergence": false,
+    "direction": "push",
+    "protected_branches_only": false,
+    "enabled": true
+  },
+  "github_token": "your-github-token",
+  "gitlab_token": "your-gitlab-token",
+  "github_user": "yourusername",
+  "verbose": false,
+  "dry_run": false
+}
+```
+
+### Using glab CLI
+
+GitLab Mirror Maker can optionally use the [glab CLI](https://gitlab.com/gitlab-org/cli) tool to perform some operations.
+This can be useful if you prefer to use your existing glab authentication.
+
+To enable glab CLI:
+```
+gitlab-mirror-maker --github-token xxx --use-glab
+```
+
+When using glab CLI, you can configure mirror options:
+```
+gitlab-mirror-maker --github-token xxx --use-glab --glab-mirror-direction push --glab-allow-divergence
+```
+
 ### Debugging
 
 Run with `--verbose` flag to enable detailed logging:
@@ -66,19 +110,30 @@ Usage: gitlab-mirror-maker [OPTIONS] [REPO]
   only. REPO can be either a simple project name ("myproject"), in which
   case its namespace is assumed to be the current user, or the path of a
   project under a specific namespace ("mynamespace/myproject").
+  
+  Configuration is loaded from ~/.gitlab_mirror_maker if it exists. Command-line
+  arguments override values from the config file.
 
 Options:
   --version                 Show the version and exit.
-  --github-token TEXT       GitHub authentication token  [required]
-  --gitlab-token TEXT       GitLab authentication token  [required]
+  --github-token TEXT       GitHub authentication token
+  --gitlab-token TEXT       GitLab authentication token
   --github-user TEXT        GitHub username. If not provided, your GitLab
                             username will be used by default.
-
   --dry-run / --no-dry-run  If enabled, a summary will be printed and no
                             mirrors will be created.
-                          
   --verbose, -v             Enable verbose logging
-
+  --use-glab / --no-use-glab
+                            Use glab CLI to perform operations
+  --save-config             Save current options to config file
+  --config-path TEXT        Path to config file (default: ~/.gitlab_mirror_maker)
+  --glab-path TEXT          Path to glab executable (default: 'glab')
+  --glab-mirror-direction [push|pull]
+                            Mirror direction when using glab CLI
+  --glab-allow-divergence / --no-glab-allow-divergence
+                            Allow divergent refs when using glab CLI
+  --glab-protected-branches-only / --no-glab-protected-branches-only
+                            Mirror only protected branches when using glab CLI
   --help                    Show this message and exit.
 ```
 
@@ -89,6 +144,14 @@ GitLab Mirror Maker uses the [remote mirrors API](https://docs.gitlab.com/ee/api
 For each public repository in your GitLab account a new GitHub repository is created using the same name and description. It also adds a `[mirror]` suffix at the end of the description and sets the website URL the original GitLab repo. See [the mirror of this repo](https://github.com/grdl/gitlab-mirror-maker) as an example.
 
 Once the mirror is created it automatically updates the target GitHub repository every time changes are pushed to the original GitLab repo.
+
+## glab CLI Integration
+
+When the `--use-glab` flag is enabled, GitLab Mirror Maker will use the glab CLI to interact with GitLab. This means:
+
+1. It will use your existing glab authentication
+2. You can configure mirroring options specific to the glab CLI
+3. You don't need to provide a GitLab token
 
 ### What is mirrored?
 
@@ -109,6 +172,8 @@ GitLab Mirror Maker needs authentication tokens for both GitLab and GitHub to be
 - Do not share it! It grants full access to your account!
 
 Here's more information about [GitLab personal tokens](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html).
+
+Alternatively, you can use the glab CLI with the `--use-glab` flag, which will use your existing glab authentication.
 
 ### How to get the GitHub token?
 
