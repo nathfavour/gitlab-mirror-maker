@@ -1,8 +1,8 @@
-import requests
 import sys
 import logging
 from typing import List, Dict, Any, Optional
 from pprint import pprint
+from .http_client import get, post, HttpError
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -34,18 +34,19 @@ def get_repos() -> List[Dict[str, Any]]:
 
     repos = []
     try:
-        while url:
-            logger.debug(f"Fetching GitHub repos from: {url}")
-            r = requests.get(url, headers=headers, timeout=30)
+        current_url = url
+        while current_url:
+            logger.debug(f"Fetching GitHub repos from: {current_url}")
+            r = get(current_url, headers=headers, timeout=30)
             r.raise_for_status()
             repos.extend(r.json())
             # handle pagination
-            url = r.links.get("next", {}).get("url", None)
+            current_url = r.links.get("next", {}).get("url", None)
             
         logger.debug(f"Found {len(repos)} GitHub repositories")
         # Return only non forked repositories
         return [x for x in repos if not x['fork']]
-    except requests.exceptions.RequestException as e:
+    except HttpError as e:
         logger.error(f"GitHub API error: {str(e)}")
         if hasattr(e, 'response') and e.response:
             logger.error(f"Response: {e.response.text}")
@@ -95,12 +96,15 @@ def create_repo(gitlab_repo: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         logger.info(f"Creating GitHub repository: {data['name']}")
-        r = requests.post(url, json=data, headers=headers, timeout=30)
+        r = post(url, json=data, headers=headers, timeout=30)
         r.raise_for_status()
         logger.info(f"GitHub repository created: {data['name']}")
         return r.json()
-    except requests.exceptions.RequestException as e:
+    except HttpError as e:
         if hasattr(e, 'response') and e.response:
             logger.error(f"GitHub API error: {e.response.text}")
-            pprint(e.response.json(), stream=sys.stderr)
+            try:
+                pprint(e.response.json(), stream=sys.stderr)
+            except:
+                pass
         raise GitHubError(f"Failed to create GitHub repository: {str(e)}")

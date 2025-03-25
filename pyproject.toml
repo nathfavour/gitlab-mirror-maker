@@ -22,16 +22,11 @@ gitlab-mirror-maker = "mirrormaker.mirrormaker:mirrormaker"
 
 [tool.poetry.dependencies]
 python = "^3.8"
-requests = "^2.23.0"
-click = "^7.1.1"
-tabulate = "^0.8.7"
-typing-extensions = "^4.0.0"
-pathlib = "^1.0.1"
+# All external dependencies have been removed in favor of standard library
 
 [tool.poetry.dev-dependencies]
 pylint = "^2.4.4"
 autopep8 = "^1.5.1"
-responses = "^0.10.12"
 pytest = "^5.4.1"
 pytest-cov = "^2.8.1"
 mypy = "^0.910"
