@@ -1,9 +1,19 @@
 import click
 import requests
+import logging
+from typing import List, Dict, Any, Optional
 from tabulate import tabulate
 from . import __version__
 from . import gitlab
 from . import github
+
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 @click.command(context_settings={'auto_envvar_prefix': 'MIRRORMAKER'})
@@ -12,8 +22,10 @@ from . import github
 @click.option('--gitlab-token', required=True, help='GitLab authentication token')
 @click.option('--github-user', help='GitHub username. If not provided, your GitLab username will be used by default.')
 @click.option('--dry-run/--no-dry-run', default=False, help="If enabled, a summary will be printed and no mirrors will be created.")
+@click.option('--verbose', '-v', is_flag=True, help="Enable verbose logging")
 @click.argument('repo', required=False)
-def mirrormaker(github_token, gitlab_token, github_user, dry_run, repo=None):
+def mirrormaker(github_token: str, gitlab_token: str, github_user: Optional[str], 
+                dry_run: bool, verbose: bool, repo: Optional[str] = None) -> None:
     """
     Set up mirroring of repositories from GitLab to GitHub.
 
@@ -24,32 +36,41 @@ def mirrormaker(github_token, gitlab_token, github_user, dry_run, repo=None):
     its namespace is assumed to be the current user, or the path of a project
     under a specific namespace ("mynamespace/myproject").
     """
-    github.token = github_token
-    github.user = github_user
-    gitlab.token = gitlab_token
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    try:
+        github.token = github_token
+        github.user = github_user
+        gitlab.token = gitlab_token
 
-    if repo:
-        gitlab_repos = [gitlab.get_repo_by_shorthand(repo)]
-    else:
-        click.echo('Getting your public GitLab repositories')
-        gitlab_repos = gitlab.get_repos()
-        if not gitlab_repos:
-            click.echo('There are no public repositories in your GitLab account.')
-            return
+        if repo:
+            logger.info(f"Getting GitLab repository: {repo}")
+            gitlab_repos = [gitlab.get_repo_by_shorthand(repo)]
+        else:
+            logger.info('Getting public GitLab repositories')
+            gitlab_repos = gitlab.get_repos()
+            if not gitlab_repos:
+                logger.info('There are no public repositories in your GitLab account.')
+                return
 
-    click.echo('Getting your public GitHub repositories')
-    github_repos = github.get_repos()
+        logger.info('Getting public GitHub repositories')
+        github_repos = github.get_repos()
 
-    actions = find_actions_to_perform(gitlab_repos, github_repos)
+        actions = find_actions_to_perform(gitlab_repos, github_repos)
 
-    print_summary_table(actions)
+        print_summary_table(actions)
 
-    perform_actions(actions, dry_run)
+        perform_actions(actions, dry_run)
 
-    click.echo('Done!')
+        logger.info('Done!')
+    except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
+        raise click.ClickException(str(e))
 
 
-def find_actions_to_perform(gitlab_repos, github_repos):
+def find_actions_to_perform(gitlab_repos: List[Dict[str, Any]], 
+                           github_repos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Goes over provided repositories and figure out what needs to be done to create missing mirrors.
 
     Args:
@@ -70,7 +91,8 @@ def find_actions_to_perform(gitlab_repos, github_repos):
     return actions
 
 
-def check_mirror_status(gitlab_repo, github_repos):
+def check_mirror_status(gitlab_repo: Dict[str, Any], 
+                        github_repos: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Checks if given GitLab repository has a mirror created among the given GitHub repositories. 
 
     Args:
@@ -83,23 +105,26 @@ def check_mirror_status(gitlab_repo, github_repos):
 
     action = {'gitlab_repo': gitlab_repo, 'create_github': True, 'create_mirror': True}
 
-    mirrors = gitlab.get_mirrors(gitlab_repo)
-    if gitlab.mirror_target_exists(github_repos, mirrors):
-        action['create_github'] = False
-        action['create_mirror'] = False
-        return action
+    try:
+        mirrors = gitlab.get_mirrors(gitlab_repo)
+        if gitlab.mirror_target_exists(github_repos, mirrors):
+            action['create_github'] = False
+            action['create_mirror'] = False
+            return action
 
-    if github.repo_exists(github_repos, gitlab_repo['path_with_namespace']):
-        action['create_github'] = False
-
+        if github.repo_exists(github_repos, f"{github.user or gitlab_repo['namespace']['path']}/{gitlab_repo['path']}"):
+            action['create_github'] = False
+    except Exception as e:
+        logger.error(f"Error checking mirror status for {gitlab_repo['path_with_namespace']}: {str(e)}")
+        
     return action
 
 
-def print_summary_table(actions):
+def print_summary_table(actions: List[Dict[str, Any]]) -> None:
     """Prints a table summarizing whether mirrors are already created or missing
     """
 
-    click.echo('Your mirrors status summary:\n')
+    logger.info('Your mirrors status summary:')
 
     created = click.style(u'\u2714 created', fg='green')
     missing = click.style(u'\u2718 missing', fg='red')
@@ -118,7 +143,7 @@ def print_summary_table(actions):
     click.echo(tabulate(summary, headers) + '\n')
 
 
-def perform_actions(actions, dry_run):
+def perform_actions(actions: List[Dict[str, Any]], dry_run: bool) -> None:
     """Creates GitHub repositories and configures GitLab mirrors where necessary. 
 
     Args:
@@ -127,16 +152,21 @@ def perform_actions(actions, dry_run):
     """
 
     if dry_run:
-        click.echo('Run without the --dry-run flag to create missing repositories and mirrors.')
+        logger.info('Run without the --dry-run flag to create missing repositories and mirrors.')
         return
 
     with click.progressbar(actions, label='Creating mirrors', show_eta=False) as bar:
         for action in bar:
-            if action["create_github"]:
-                github.create_repo(action["gitlab_repo"])
+            try:
+                if action["create_github"]:
+                    logger.debug(f"Creating GitHub repo for {action['gitlab_repo']['path_with_namespace']}")
+                    github.create_repo(action["gitlab_repo"])
 
-            if action["create_mirror"]:
-                gitlab.create_mirror(action["gitlab_repo"], github.token, github.user)
+                if action["create_mirror"]:
+                    logger.debug(f"Setting up mirror for {action['gitlab_repo']['path_with_namespace']}")
+                    gitlab.create_mirror(action["gitlab_repo"], github.token, github.user)
+            except Exception as e:
+                logger.error(f"Error performing actions for {action['gitlab_repo']['path_with_namespace']}: {str(e)}")
 
 
 if __name__ == '__main__':

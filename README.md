@@ -41,6 +41,14 @@ export MIRRORMAKER_GITLAB_TOKEN xxx
 gitlab-mirror-maker
 ```
 
+### Debugging
+
+Run with `--verbose` flag to enable detailed logging:
+
+```
+gitlab-mirror-maker --verbose
+```
+
 ### Dry run
 
 Run with `--dry-run` flag to only print the summary and don't make any changes.
@@ -68,6 +76,8 @@ Options:
 
   --dry-run / --no-dry-run  If enabled, a summary will be printed and no
                             mirrors will be created.
+                          
+  --verbose, -v             Enable verbose logging
 
   --help                    Show this message and exit.
 ```
@@ -126,3 +136,31 @@ job:
 ```
 
 Here's more info about creating [scheduled pipelines with GitLab CI](https://docs.gitlab.com/ee/ci/pipelines/schedules.html).
+
+# Development
+
+## Setup
+
+1. Clone the repository
+2. Install Poetry: `pip install poetry`
+3. Install dependencies: `poetry install`
+4. Run tests: `poetry run pytest`
+
+## Type checking
+
+Run mypy for type checking:
+```
+poetry run mypy mirrormaker
+```
+
+## Testing
+
+Run the tests:
+```
+poetry run pytest
+```
+
+With coverage:
+```
+poetry run pytest --cov=mirrormaker
+```
