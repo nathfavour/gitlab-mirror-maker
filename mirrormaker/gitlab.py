@@ -1,6 +1,6 @@
-import requests
 import logging
 from typing import List, Dict, Any, Optional, Tuple
+from .http_client import get, post, HttpError
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -29,12 +29,12 @@ def get_repos() -> List[Dict[str, Any]]:
 
     try:
         logger.debug("Fetching GitLab repositories")
-        r = requests.get(url, headers=headers, timeout=30)
+        r = get(url, headers=headers, timeout=30)
         r.raise_for_status()
         repos = r.json()
         logger.debug(f"Found {len(repos)} public GitLab repositories")
         return repos
-    except requests.exceptions.RequestException as e:
+    except HttpError as e:
         logger.error(f"GitLab API error: {str(e)}")
         if hasattr(e, 'response') and e.response:
             logger.error(f"Response: {e.response.text}")
@@ -55,10 +55,10 @@ def get_user() -> Dict[str, Any]:
 
     try:
         logger.debug("Fetching GitLab user information")
-        r = requests.get(url, headers=headers, timeout=30)
+        r = get(url, headers=headers, timeout=30)
         r.raise_for_status()
         return r.json()
-    except requests.exceptions.RequestException as e:
+    except HttpError as e:
         logger.error(f"GitLab API error: {str(e)}")
         if hasattr(e, 'response') and e.response:
             logger.error(f"Response: {e.response.text}")
@@ -77,23 +77,25 @@ def get_repo_by_shorthand(shorthand: str) -> Dict[str, Any]:
     Raises:
      - GitLabError: If the GitLab API request fails.
     """
+    from urllib.parse import quote
+    
     if "/" not in shorthand:
         user = get_user()["username"]
         namespace, project = user, shorthand
     else:
         namespace, project = shorthand.rsplit("/", maxsplit=1)
 
-    project_id = requests.utils.quote("/".join([namespace, project]), safe="")
+    project_id = quote("/".join([namespace, project]), safe="")
 
     url = f'https://gitlab.com/api/v4/projects/{project_id}'
     headers = {'Authorization': f'Bearer {token}'}
 
     try:
         logger.debug(f"Fetching GitLab repository: {shorthand}")
-        r = requests.get(url, headers=headers, timeout=30)
+        r = get(url, headers=headers, timeout=30)
         r.raise_for_status()
         return r.json()
-    except requests.exceptions.RequestException as e:
+    except HttpError as e:
         logger.error(f"GitLab API error: {str(e)}")
         if hasattr(e, 'response') and e.response:
             logger.error(f"Response: {e.response.text}")
@@ -118,12 +120,12 @@ def get_mirrors(gitlab_repo: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     try:
         logger.debug(f"Fetching mirrors for repository: {gitlab_repo['path_with_namespace']}")
-        r = requests.get(url, headers=headers, timeout=30)
+        r = get(url, headers=headers, timeout=30)
         r.raise_for_status()
         mirrors = r.json()
         logger.debug(f"Found {len(mirrors)} mirrors")
         return mirrors
-    except requests.exceptions.RequestException as e:
+    except HttpError as e:
         logger.error(f"GitLab API error: {str(e)}")
         if hasattr(e, 'response') and e.response:
             logger.error(f"Response: {e.response.text}")
@@ -180,11 +182,11 @@ def create_mirror(gitlab_repo: Dict[str, Any], github_token: str, github_user: O
 
     try:
         logger.info(f"Creating mirror for repository: {gitlab_repo['path_with_namespace']} to GitHub: {github_user}/{gitlab_repo['path']}")
-        r = requests.post(url, json=data, headers=headers, timeout=30)
+        r = post(url, json=data, headers=headers, timeout=30)
         r.raise_for_status()
         logger.info(f"Mirror created successfully")
         return r.json()
-    except requests.exceptions.RequestException as e:
+    except HttpError as e:
         logger.error(f"GitLab API error: {str(e)}")
         if hasattr(e, 'response') and e.response:
             logger.error(f"Response: {e.response.text}")

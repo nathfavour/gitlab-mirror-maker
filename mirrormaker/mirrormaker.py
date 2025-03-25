@@ -1,15 +1,13 @@
-import click
-import requests
+import sys
 import logging
 import os
 from typing import List, Dict, Any, Optional
-from tabulate import tabulate
 from . import __version__
 from . import gitlab
 from . import github
 from . import config
 from . import glab_cli
-
+from .cli import parse_args, echo, Style, create_progressbar, ClickException, tabulate
 
 # Set up logging
 logging.basicConfig(
@@ -19,95 +17,76 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-@click.command(context_settings={'auto_envvar_prefix': 'MIRRORMAKER'})
-@click.version_option(version=__version__)
-@click.option('--github-token', help='GitHub authentication token')
-@click.option('--gitlab-token', help='GitLab authentication token')
-@click.option('--github-user', help='GitHub username. If not provided, your GitLab username will be used by default.')
-@click.option('--dry-run/--no-dry-run', default=None, help="If enabled, a summary will be printed and no mirrors will be created.")
-@click.option('--verbose', '-v', is_flag=True, help="Enable verbose logging")
-@click.option('--use-glab/--no-use-glab', default=None, help="Use glab CLI to perform operations")
-@click.option('--save-config', is_flag=True, help="Save current options to config file")
-@click.option('--config-path', help="Path to config file (default: ~/.gitlab_mirror_maker)")
-@click.option('--glab-path', help="Path to glab executable (default: 'glab')")
-@click.option('--glab-mirror-direction', type=click.Choice(['push', 'pull']), help="Mirror direction when using glab CLI")
-@click.option('--glab-allow-divergence/--no-glab-allow-divergence', default=None, help="Allow divergent refs when using glab CLI")
-@click.option('--glab-protected-branches-only/--no-glab-protected-branches-only', default=None, help="Mirror only protected branches when using glab CLI")
-@click.argument('repo', required=False)
-def mirrormaker(github_token: Optional[str], gitlab_token: Optional[str], github_user: Optional[str], 
-                dry_run: Optional[bool], verbose: bool, repo: Optional[str] = None,
-                use_glab: Optional[bool] = None, save_config: bool = False, config_path: Optional[str] = None,
-                glab_path: Optional[str] = None, glab_mirror_direction: Optional[str] = None,
-                glab_allow_divergence: Optional[bool] = None, glab_protected_branches_only: Optional[bool] = None) -> None:
+def mirrormaker() -> None:
     """
     Set up mirroring of repositories from GitLab to GitHub.
-
-    By default, mirrors for all repositories owned by the user will be set up.
-
-    If the REPO argument is given, a mirror will be set up for that repository
-    only. REPO can be either a simple project name ("myproject"), in which case
-    its namespace is assumed to be the current user, or the path of a project
-    under a specific namespace ("mynamespace/myproject").
     
-    Configuration is loaded from ~/.gitlab_mirror_maker if it exists. Command-line
-    arguments override values from the config file.
+    Entry point for the command-line tool.
     """
     try:
+        # Parse command-line arguments
+        args = parse_args()
+        
+        # Show version and exit if requested
+        if args.version:
+            print(f"gitlab-mirror-maker version {__version__}")
+            return
+        
         # Override config path if provided
-        if config_path:
-            config.config.config_file = os.path.expanduser(config_path)
+        if args.config_path:
+            config.config.config_file = os.path.expanduser(args.config_path)
             config.config.load_config()
         
         # Update config with CLI options
-        use_glab_cli = use_glab if use_glab is not None else config.config.get("use_glab_cli")
+        use_glab_cli = args.use_glab if hasattr(args, 'use_glab') and args.use_glab is not None else config.config.get("use_glab_cli")
         
-        if glab_path:
-            config.config.update(glab_path=glab_path)
+        if args.glab_path:
+            config.config.update(glab_path=args.glab_path)
         
         # Update glab mirror options
         glab_mirror_options = config.config.get("glab_mirror_options", {})
-        if glab_mirror_direction:
-            glab_mirror_options["direction"] = glab_mirror_direction
-        if glab_allow_divergence is not None:
-            glab_mirror_options["allow_divergence"] = glab_allow_divergence
-        if glab_protected_branches_only is not None:
-            glab_mirror_options["protected_branches_only"] = glab_protected_branches_only
+        if args.glab_mirror_direction:
+            glab_mirror_options["direction"] = args.glab_mirror_direction
+        if hasattr(args, 'glab_allow_divergence') and args.glab_allow_divergence is not None:
+            glab_mirror_options["allow_divergence"] = args.glab_allow_divergence
+        if hasattr(args, 'glab_protected_branches_only') and args.glab_protected_branches_only is not None:
+            glab_mirror_options["protected_branches_only"] = args.glab_protected_branches_only
         config.config.update(glab_mirror_options=glab_mirror_options)
         
         # Update other settings
         config.config.update(
-            github_token=github_token,
-            gitlab_token=gitlab_token,
-            github_user=github_user,
-            verbose=verbose,
-            dry_run=dry_run,
+            github_token=args.github_token,
+            gitlab_token=args.gitlab_token,
+            github_user=args.github_user,
+            verbose=args.verbose,
+            dry_run=args.dry_run,
             use_glab_cli=use_glab_cli
         )
         
         # Save config if requested
-        if save_config:
+        if args.save_config:
             config.config.save_config()
             logger.info(f"Configuration saved to {config.config.config_file}")
-            if not repo:  # Exit if just saving config without performing any operations
+            if not args.repo:  # Exit if just saving config without performing any operations
                 return
         
         # Set up logging
-        if verbose or config.config.get("verbose"):
+        if args.verbose or config.config.get("verbose"):
             logging.getLogger().setLevel(logging.DEBUG)
         
         # Ensure required tokens are available
-        github_token = github_token or config.config.get("github_token")
-        gitlab_token = gitlab_token or config.config.get("gitlab_token")
+        github_token = args.github_token or config.config.get("github_token")
+        gitlab_token = args.gitlab_token or config.config.get("gitlab_token")
         
         if not github_token:
-            raise click.ClickException("GitHub token is required. Provide it via --github-token or in config file.")
+            raise ClickException("GitHub token is required. Provide it via --github-token or in config file.")
         
         if not gitlab_token and not use_glab_cli:
-            raise click.ClickException("GitLab token is required when not using glab CLI. Provide it via --gitlab-token or in config file.")
+            raise ClickException("GitLab token is required when not using glab CLI. Provide it via --gitlab-token or in config file.")
         
         # Set up GitHub and GitLab tokens
         github.token = github_token
-        github.user = github_user or config.config.get("github_user")
+        github.user = args.github_user or config.config.get("github_user")
         gitlab.token = gitlab_token
         
         # Check if glab CLI is available if it's being used
@@ -119,16 +98,16 @@ def mirrormaker(github_token: Optional[str], gitlab_token: Optional[str], github
                 logger.info("Using glab CLI for GitLab operations")
         
         # Get GitLab repositories
-        if repo:
-            logger.info(f"Getting GitLab repository: {repo}")
+        if args.repo:
+            logger.info(f"Getting GitLab repository: {args.repo}")
             if use_glab_cli:
-                gitlab_repo = glab_cli.get_repo_by_path(repo)
+                gitlab_repo = glab_cli.get_repo_by_path(args.repo)
                 if gitlab_repo:
                     gitlab_repos = [gitlab_repo]
                 else:
-                    raise click.ClickException(f"Repository {repo} not found")
+                    raise ClickException(f"Repository {args.repo} not found")
             else:
-                gitlab_repos = [gitlab.get_repo_by_shorthand(repo)]
+                gitlab_repos = [gitlab.get_repo_by_shorthand(args.repo)]
         else:
             logger.info('Getting public GitLab repositories')
             if use_glab_cli:
@@ -147,13 +126,17 @@ def mirrormaker(github_token: Optional[str], gitlab_token: Optional[str], github
         # Find actions and perform them
         actions = find_actions_to_perform(gitlab_repos, github_repos, use_glab_cli)
         print_summary_table(actions)
-        perform_actions(actions, dry_run or config.config.get("dry_run", False), use_glab_cli)
+        perform_actions(actions, args.dry_run or config.config.get("dry_run", False), use_glab_cli)
         
         logger.info('Done!')
     
-    except Exception as e:
+    except ClickException as e:
         logger.error(f"An error occurred: {str(e)}")
-        raise click.ClickException(str(e))
+        e.show()
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {str(e)}")
+        sys.exit(1)
 
 
 def find_actions_to_perform(gitlab_repos: List[Dict[str, Any]], 
@@ -172,7 +155,7 @@ def find_actions_to_perform(gitlab_repos: List[Dict[str, Any]],
     """
 
     actions = []
-    with click.progressbar(gitlab_repos, label='Checking mirrors status', show_eta=False) as bar:
+    with create_progressbar(gitlab_repos, label='Checking mirrors status', show_eta=False) as bar:
         for gitlab_repo in bar:
             action = check_mirror_status(gitlab_repo, github_repos, use_glab_cli)
             actions.append(action)
@@ -217,26 +200,25 @@ def check_mirror_status(gitlab_repo: Dict[str, Any],
 
 
 def print_summary_table(actions: List[Dict[str, Any]]) -> None:
-    """Prints a table summarizing whether mirrors are already created or missing
-    """
+    """Prints a table summarizing whether mirrors are already created or missing"""
 
     logger.info('Your mirrors status summary:')
 
-    created = click.style(u'\u2714 created', fg='green')
-    missing = click.style(u'\u2718 missing', fg='red')
+    created = Style.style(u'\u2714 created', fg='green')
+    missing = Style.style(u'\u2718 missing', fg='red')
 
     headers = ['GitLab repo', 'GitHub repo', 'Mirror']
     summary = []
 
     for action in actions:
         row = [action["gitlab_repo"]["path_with_namespace"]]
-        row.append(missing) if action["create_github"] else row.append(created)
-        row.append(missing) if action["create_mirror"] else row.append(created)
+        row.append(missing if action["create_github"] else created)
+        row.append(missing if action["create_mirror"] else created)
         summary.append(row)
 
     summary.sort()
 
-    click.echo(tabulate(summary, headers) + '\n')
+    echo(tabulate(summary, headers) + '\n')
 
 
 def perform_actions(actions: List[Dict[str, Any]], dry_run: bool, use_glab_cli: bool = False) -> None:
@@ -252,7 +234,7 @@ def perform_actions(actions: List[Dict[str, Any]], dry_run: bool, use_glab_cli: 
         logger.info('Run without the --dry-run flag to create missing repositories and mirrors.')
         return
 
-    with click.progressbar(actions, label='Creating mirrors', show_eta=False) as bar:
+    with create_progressbar(actions, label='Creating mirrors', show_eta=False) as bar:
         for action in bar:
             try:
                 gitlab_repo = action["gitlab_repo"]
@@ -289,5 +271,4 @@ def perform_actions(actions: List[Dict[str, Any]], dry_run: bool, use_glab_cli: 
 
 
 if __name__ == '__main__':
-    # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
     mirrormaker()
